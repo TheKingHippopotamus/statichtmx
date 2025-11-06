@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" hx-boost="true">
+  <head>
+    <meta charset="utf-8" />
+    <title>IMDb Suggest — htmx + JSONP (GitHub Pages)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- htmx -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>IMDb Discovery & Search (Static htmx)</h1>
+      <p class="sub">Client-side aggregation of IMDb “suggests/*”. No server required.</p>
+    </header>
+
+    <main>
+      <!-- טופס חיפוש: htmx רק ל־UX; העבודה הכבדה ב־imdb.js -->
+      <form id="imdb-form" hx-on:submit="return window.imdbApp.onSubmit(event)">
+        <label>
+          Query (empty = discovery):
+          <input id="q" name="q" type="text" placeholder="nicolas cage / dune / breaking bad" autocomplete="off" />
+        </label>
+
+        <div class="row">
+          <label class="chk">
+            <input type="checkbox" id="variations" checked />
+            Add variations (a–z, 0–9, 'movie', 'series', etc.)
+          </label>
+          <label class="chk">
+            <input type="checkbox" id="images" checked />
+            Include images
+          </label>
+        </div>
+
+        <div class="row">
+          <button type="submit">Search</button>
+          <button type="button" hx-on:click="window.imdbApp.downloadJSON()">Download JSON</button>
+          <span id="status" class="status"></span>
+        </div>
+      </form>
+
+      <!-- אזור תוצאות: htmx מחליף innerHTML -->
+      <section id="results"></section>
+    </main>
+
+    <footer>
+      <small>
+        Uses IMDb public “suggests” JSONP endpoints (undocumented). For official API, see IMDb Developer (GraphQL via AWS Data Exchange).
+      </small>
+    </footer>
+
+    <script src="assets/imdb.js"></script>
+  </body>
+</html>
+
+
+
+
