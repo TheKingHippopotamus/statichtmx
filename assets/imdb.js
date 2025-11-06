@@ -2,13 +2,11 @@
 (function () {
   'use strict';
 
-  // --- guard: prevent double-execution if the script is included twice ---
   if (window.imdbApp && window.imdbApp.__loaded) {
     console.warn('[imdb] script already loaded; skipping second execution');
     return;
   }
 
-  // ---------- CONFIG (safe defaults) ----------
   const CONFIG = {
     maxQueriesSearch: 40,
     maxQueriesDiscover: 40,
@@ -25,7 +23,6 @@
     history: "imdb:history:v1"
   };
 
-  // ---------- utilities ----------
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const slug = (s) => (s || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") || "query";
   const urlencode = (s) => encodeURIComponent(s);
@@ -45,7 +42,6 @@
     return out;
   }
 
-  // ---------- IMDb JSONP ----------
   function buildJSONPUrl(q){
     const first = q.trim().charAt(0).toLowerCase() || "a";
     const encoded = urlencode(q);
@@ -55,7 +51,6 @@
     return "imdb$" + q.toLowerCase().replace(/[^a-z0-9]/g, "_");
   }
 
-  // ---------- query expansion ----------
   function expandQueries(base, useVariations){
     const q=[];
     if(base){
@@ -73,7 +68,6 @@
     }
   }
 
-  // ---------- JSONP loader ----------
   function loadSuggest(q, timeoutMs=CONFIG.perRequestTimeoutMs){
     return new Promise((resolve)=>{
       const url = buildJSONPUrl(q);
@@ -98,7 +92,6 @@
     });
   }
 
-  // ---------- concurrent loader ----------
   async function loadAll(queries, onProgress){
     const results=[];
     let i=0, done=0, canceled=false;
@@ -130,7 +123,6 @@
     return results;
   }
 
-  // ---------- normalize ----------
   function normalize(items, wantImages){
     const out=[];
     for(const it of items){
@@ -159,7 +151,6 @@
     return { len: unique.length, titles: unique };
   }
 
-  // ---------- render ----------
   function renderCards(model){
     if(!model || !Array.isArray(model.titles) || model.titles.length===0){
       return "<p>No results.</p>";
@@ -183,7 +174,27 @@
     }).join("");
   }
 
-  // ---------- app wiring ----------
+  // --- PATCH: renderer that never silently fails on the DOM update ---
+  function renderInto(el, html) {
+    if (!el) {
+      console.error('[imdb] #results element not found. Check index.html has <section id="results"></section> and no duplicates.');
+      return false;
+    }
+    // נבנה דום בטוח במקום innerHTML ישיר
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    const frag = document.createDocumentFragment();
+    frag.appendChild(tpl.content);
+
+    // ננקה ואז נחליף
+    while (el.firstChild) el.removeChild(el.firstChild);
+    el.appendChild(frag);
+
+    // כפיית repaint (לעתים נדירות בדפדפנים איטיים)
+    void el.offsetHeight;
+    return true;
+  }
+
   let lastJSON = { len: 0, titles: [] };
   let busy = false;
 
@@ -200,20 +211,22 @@
     if(!saved || !saved.titles) return false;
     const resultsEl=document.getElementById("results");
     const status=document.getElementById("status");
-    resultsEl.innerHTML=renderCards(saved);
+    const ok = renderInto(resultsEl, renderCards(saved)); // PATCH
     lastJSON=saved;
-    const qInput=document.getElementById("q");
-    const vChk=document.getElementById("variations");
-    const iChk=document.getElementById("images");
-    if(meta){
-      if(qInput && typeof meta.query==="string") qInput.value=meta.query;
-      if(vChk && typeof meta.variations==="boolean") vChk.checked=meta.variations;
-      if(iChk && typeof meta.images==="boolean") iChk.checked=meta.images;
-      const when=meta.timestamp?new Date(meta.timestamp):null;
-      const whenStr=when?when.toLocaleString():"previous session";
-      if(status) status.textContent=`Restored ${saved.len} titles from local cache (${whenStr})`;
-    } else if(status){ status.textContent=`Restored ${saved.len} titles from local cache`; }
-    return true;
+    if (ok) {
+      const qInput=document.getElementById("q");
+      const vChk=document.getElementById("variations");
+      const iChk=document.getElementById("images");
+      if(meta){
+        if(qInput && typeof meta.query==="string") qInput.value=meta.query;
+        if(vChk && typeof meta.variations==="boolean") vChk.checked=meta.variations;
+        if(iChk && typeof meta.images==="boolean") iChk.checked=meta.images;
+        const when=meta.timestamp?new Date(meta.timestamp):null;
+        const whenStr=when?when.toLocaleString():"previous session";
+        if(status) status.textContent=`Restored ${saved.len} titles from local cache (${whenStr})`;
+      } else if(status){ status.textContent=`Restored ${saved.len} titles from local cache`; }
+    }
+    return ok;
   }
 
   async function onSubmit(evt){
@@ -228,7 +241,7 @@
     const resultsEl=document.getElementById("results");
 
     status.textContent="Loading…";
-    resultsEl.innerHTML="";
+    renderInto(resultsEl, ""); // PATCH: נקה בבטחה
 
     const qs=expandQueries(q, wantVar);
 
@@ -236,13 +249,18 @@
       const raw=await loadAll(qs, ({pct})=>{ status.textContent=`Loading… ${pct}%`; });
       const model=normalize(raw, wantImg);
       lastJSON=model;
-      resultsEl.innerHTML=renderCards(model);
-      status.textContent=`Found ${model.len} unique titles (capped)`;
+
+      const html = renderCards(model);
+      const ok = renderInto(resultsEl, html); // PATCH: החלפה בטוחה
+      status.textContent = ok
+        ? `Found ${model.len} unique titles (capped)`
+        : `Found ${model.len} titles, but #results was missing`;
+
       autosave({ query:q, variations:wantVar, images:wantImg, timestamp:Date.now() });
     }catch(e){
       console.error(e);
       status.textContent="Error while loading data.";
-      resultsEl.innerHTML="<p>Failed to load.</p>";
+      renderInto(resultsEl, "<p>Failed to load.</p>");
     }finally{
       busy=false;
     }
@@ -260,8 +278,7 @@
     setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
   }
 
-  // expose + mark as loaded
-  window.imdbApp = { onSubmit, downloadJSON, __loaded: true, __version: "1.1" };
+  window.imdbApp = { onSubmit, downloadJSON, __loaded: true, __version: "1.2" };
 
   document.addEventListener("DOMContentLoaded", ()=>{
     const { saved, meta } = autoload();
